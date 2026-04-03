@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(node -e \"const s = require\\('./node_modules/chartjs-chart-sankey'\\); console.log\\(Object.keys\\(s\\)\\)\")",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}
