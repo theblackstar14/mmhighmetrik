@@ -79,11 +79,11 @@ export default function GanttDhtmlx({ tareas }: Props) {
         },
         {
           name: 'start_date', label: 'Inicio', width: 82, align: 'center',
-          template: (t: any) => gantt.templates.date_grid(t.start_date, t),
+          template: (t: any) => gantt.templates.date_grid(t.start_date, t, null as any),
         },
         {
           name: 'end_date', label: 'Fin', width: 82, align: 'center',
-          template: (t: any) => gantt.templates.date_grid(t.end_date, t),
+          template: (t: any) => gantt.templates.date_grid(t.end_date, t, null as any),
         },
         {
           name: 'costo', label: 'Parcial', width: 90, align: 'right',
