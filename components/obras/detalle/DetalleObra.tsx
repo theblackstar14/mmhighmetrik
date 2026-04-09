@@ -2,7 +2,7 @@
 import { useState, useRef } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import type { ObraDetalle, PartidaDetalle } from '@/lib/obras'
+import type { ObraDetalle, PartidaDetalle, CotizacionResumen } from '@/lib/obras'
 import CronogramaObra from './CronogramaObra'
 import SubirPortada from '../SubirPortada'
 import { createClient } from '@/lib/supabase/client'
@@ -35,7 +35,14 @@ const ESTADO_CERT: Record<string, { color: string; bg: string }> = {
   cobrada:    { color: '#7C3AED', bg: '#F5F3FF' },
 }
 
-const TABS = ['Resumen', 'Cronograma', 'Partidas', 'Financiero', 'Contratos']
+const TABS = ['Resumen', 'Cronograma', 'Partidas', 'Financiero', 'Contratos', 'Cotizaciones']
+
+const ESTADO_COT: Record<string, { color: string; bg: string }> = {
+  borrador:  { color: '#64748B', bg: '#F1F5F9' },
+  enviada:   { color: '#1D4ED8', bg: '#DBEAFE' },
+  aprobada:  { color: '#15803D', bg: '#DCFCE7' },
+  rechazada: { color: '#DC2626', bg: '#FEE2E2' },
+}
 
 function fmt(n: number) { return `S/ ${n.toLocaleString()}` }
 function fmtFecha(s: string | null) {
@@ -109,6 +116,7 @@ export default function DetalleObra({ obra: inicial }: { obra: ObraDetalle }) {
   const [imagenUrl, setImagenUrl] = useState(inicial.imagen_url)
   const [hoverPortada, setHoverPortada] = useState(false)
   const [partidas, setPartidas] = useState<PartidaDetalle[]>(inicial.partidas)
+  const cotizaciones: CotizacionResumen[] = inicial.cotizaciones
   const obra = { ...inicial, imagen_url: imagenUrl, partidas }
 
   // ── Nueva partida ─────────────────────────────────────────
@@ -603,6 +611,89 @@ export default function DetalleObra({ obra: inicial }: { obra: ObraDetalle }) {
                 </tbody>
               </table>
             )}
+          </div>
+        )}
+
+        {/* COTIZACIONES */}
+        {tab === 5 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Cotizaciones vinculadas</div>
+                <div style={{ fontSize: 10.5, color: '#94A3B8', marginTop: 2 }}>{cotizaciones.length} cotización{cotizaciones.length !== 1 ? 'es' : ''} · la aprobada define el presupuesto y partidas</div>
+              </div>
+              <Link
+                href="/cotizaciones-v2"
+                style={{ fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 7, background: '#0F172A', color: '#fff', textDecoration: 'none' }}
+              >
+                + Nueva cotización
+              </Link>
+            </div>
+
+            {cotizaciones.length === 0 && (
+              <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 12, padding: '40px 0', textAlign: 'center' }}>
+                <div style={{ fontSize: 28, marginBottom: 10 }}>📋</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>Sin cotizaciones</div>
+                <div style={{ fontSize: 11, color: '#94A3B8' }}>Cuando apruebes una cotización para esta obra aparecerá aquí</div>
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
+              {cotizaciones.map(cot => {
+                const st = ESTADO_COT[cot.estado] ?? ESTADO_COT.borrador
+                const aprobada = cot.estado === 'aprobada'
+                return (
+                  <div
+                    key={cot.id}
+                    style={{
+                      background: '#fff',
+                      border: `1.5px solid ${aprobada ? '#86EFAC' : '#E2E8F0'}`,
+                      borderRadius: 12,
+                      padding: 18,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                      position: 'relative',
+                      boxShadow: aprobada ? '0 0 0 3px #DCFCE7' : undefined,
+                    }}
+                  >
+                    {/* Header */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>
+                          {cot.numero_cot || '—'}
+                          <span style={{ fontSize: 10, fontWeight: 500, color: '#94A3B8', marginLeft: 6 }}>rev. {cot.revision}</span>
+                        </div>
+                        <div style={{ fontSize: 10.5, color: '#64748B', marginTop: 2 }}>
+                          {cot.fecha ? new Date(cot.fecha + 'T12:00:00').toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }) : fmtFecha(cot.created_at)}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 9.5, fontWeight: 700, padding: '3px 9px', borderRadius: 5, background: st.bg, color: st.color, textTransform: 'uppercase', letterSpacing: '.4px' }}>
+                        {cot.estado}
+                      </span>
+                    </div>
+
+                    {/* Monto */}
+                    <div style={{ background: aprobada ? '#F0FDF4' : '#F8FAFC', borderRadius: 8, padding: '10px 14px' }}>
+                      <div style={{ fontSize: 9, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 2 }}>Total</div>
+                      <div style={{ fontSize: 18, fontWeight: 800, color: aprobada ? '#15803D' : '#0F172A' }}>
+                        S/ {Number(cot.total ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+
+                    {/* Footer */}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <Link
+                        href="/cotizaciones-v2"
+                        style={{ fontSize: 11, fontWeight: 600, color: '#2563EB', textDecoration: 'none', padding: '5px 10px', borderRadius: 6, border: '1px solid #BFDBFE', background: '#EFF6FF' }}
+                      >
+                        Ver en cotizaciones →
+                      </Link>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
 

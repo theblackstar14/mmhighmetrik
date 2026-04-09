@@ -350,12 +350,14 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
     }
   }
 
-  function buildPayload(cot: Cotizacion) {
+  function buildPayload(cot: Cotizacion, proyectoId: string | null = null) {
+    const resolvedId = proyectoId ?? obras.find(o => o.nombre.toLowerCase() === cot.proyecto.trim().toLowerCase())?.id ?? null
     return {
-      empresa_id: empresaId,
-      numero_cot: cot.numero_cot,
-      revision:   cot.revision,
-      proyecto:   cot.proyecto,
+      empresa_id:  empresaId,
+      proyecto_id: resolvedId,
+      numero_cot:  cot.numero_cot,
+      revision:    cot.revision,
+      proyecto:    cot.proyecto,
       cliente:    cot.cliente,
       ruc_empresa: cot.ruc_empresa,
       contacto:   cot.contacto,
@@ -398,12 +400,16 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
     setProyectoError('')
     setSaving(true)
 
-    // Si se aprueba → crear obra en tabla proyecto si no existe
+    let obraId: string | null = null
+
+    // Si se aprueba → crear obra en tabla proyecto si no existe, luego importar partidas
     if (cotActual.estado === 'aprobada' && dbObraExists) {
       const nombreObra = cotActual.proyecto.trim()
       const existe = obras.find(o => o.nombre.toLowerCase() === nombreObra.toLowerCase())
-      if (!existe) {
-        // Generar codigo único basado en la cotización o timestamp
+
+      if (existe) {
+        obraId = existe.id
+      } else {
         const codigoBase = cotActual.numero_cot
           ? `PRY-${cotActual.numero_cot.replace(/[^A-Z0-9]/gi, '').slice(0, 8).toUpperCase()}`
           : `PRY-${Date.now().toString(36).toUpperCase()}`
@@ -426,11 +432,36 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
           setSaving(false)
           return
         }
-        if (nuevaObra) setObras(prev => [...prev, nuevaObra])
+        if (nuevaObra) {
+          setObras(prev => [...prev, nuevaObra])
+          obraId = nuevaObra.id
+        }
+      }
+
+      // Importar partidas: reemplazar las existentes
+      if (obraId && cotActual.partidas.length > 0) {
+        await supabase.from('partida').delete().eq('proyecto_id', obraId)
+        const inserts = cotActual.partidas.map(p => ({
+          proyecto_id:     obraId!,
+          codigo:          p.item || '',
+          descripcion:     p.descripcion || '',
+          unidad:          p.unidad || '',
+          metrado:         p.metrado ?? 0,
+          precio_unitario: p.precio_unitario ?? 0,
+          avance_fisico:   0,
+          es_titulo:       p.es_titulo ?? false,
+        }))
+        const { error: errP } = await supabase.from('partida').insert(inserts)
+        if (errP) alert(`Partidas guardadas pero con error al importar a obra: ${errP.message}`)
       }
     }
 
-    const payload = buildPayload(cotActual)
+    // Si no se aprobó pero la obra ya existe, igual vinculamos
+    if (!obraId) {
+      obraId = obras.find(o => o.nombre.toLowerCase() === cotActual.proyecto.trim().toLowerCase())?.id ?? null
+    }
+
+    const payload = buildPayload(cotActual, obraId)
     const { data, error } = cotActual.id
       ? await supabase.from('cotizacion').update(payload).eq('id', cotActual.id).select().single()
       : await supabase.from('cotizacion').insert(payload).select().single()

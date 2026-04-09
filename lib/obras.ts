@@ -65,6 +65,16 @@ export interface FlujoItem {
   fecha_esperada: string
 }
 
+export interface CotizacionResumen {
+  id: string
+  numero_cot: string
+  revision: string
+  fecha: string | null
+  total: number
+  estado: string
+  created_at: string
+}
+
 export interface ObraDetalle {
   id: string
   codigo: string
@@ -96,6 +106,7 @@ export interface ObraDetalle {
   facturas: FacturaItem[]
   certificaciones: CertificacionItem[]
   flujo: FlujoItem[]
+  cotizaciones: CotizacionResumen[]
 }
 
 export async function getObraDetalle(id: string): Promise<ObraDetalle | null> {
@@ -118,6 +129,7 @@ export async function getObraDetalle(id: string): Promise<ObraDetalle | null> {
     { data: facturas },
     { data: certs },
     { data: flujo },
+    { data: cotizaciones },
   ] = await Promise.all([
     supabase.from('partida').select('id,codigo,descripcion,unidad,metrado,precio_unitario,total,avance_fisico,fecha_inicio,fecha_fin,responsable').eq('proyecto_id', id).order('codigo'),
     supabase.from('contrato').select('id,tipo,numero,monto,moneda,fecha_firma,fecha_inicio,fecha_fin,estado').eq('proyecto_id', id),
@@ -125,6 +137,7 @@ export async function getObraDetalle(id: string): Promise<ObraDetalle | null> {
     supabase.from('factura').select('id,tipo,serie_numero,nombre_contraparte,total,estado,fecha_emision,fecha_vencimiento').eq('proyecto_id', id).order('fecha_emision', { ascending: false }),
     supabase.from('certificacion').select('id,numero,monto,estado,fecha,descripcion').eq('proyecto_id', id).order('numero', { ascending: false }),
     supabase.from('flujo_caja_proyectado').select('id,tipo,descripcion,monto,fecha_esperada').eq('proyecto_id', id).eq('realizado', false).order('fecha_esperada'),
+    supabase.from('cotizacion').select('id,numero_cot,revision,fecha,total,estado,created_at').eq('proyecto_id', id).order('created_at', { ascending: false }),
   ])
 
   const today          = new Date()
@@ -170,6 +183,7 @@ export async function getObraDetalle(id: string): Promise<ObraDetalle | null> {
     facturas:      (facturas      ?? []) as FacturaItem[],
     certificaciones: (certs       ?? []) as CertificacionItem[],
     flujo:         (flujo         ?? []) as FlujoItem[],
+    cotizaciones:  (cotizaciones  ?? []) as CotizacionResumen[],
   }
 }
 
