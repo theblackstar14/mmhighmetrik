@@ -53,7 +53,7 @@ interface ListItem {
   created_at: string
 }
 
-interface ProyectoRecord {
+interface ObraRecord {
   id: string
   nombre: string
   estado: string
@@ -63,20 +63,20 @@ interface Props {
   cotizaciones: ListItem[]
   empresaId: string
   dbExists: boolean
-  proyectos: ProyectoRecord[]
-  dbProyectoExists: boolean
+  obras: ObraRecord[]
+  dbObraExists: boolean
 }
 
-const SQL_PROYECTO = `
-CREATE TABLE proyecto (
+const SQL_OBRA = `
+CREATE TABLE obra (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   empresa_id  uuid NOT NULL REFERENCES empresa(id) ON DELETE CASCADE,
   nombre      text NOT NULL,
   estado      text NOT NULL DEFAULT 'activo',
   created_at  timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE proyecto ENABLE ROW LEVEL SECURITY;
-CREATE POLICY proyecto_empresa ON proyecto
+ALTER TABLE obra ENABLE ROW LEVEL SECURITY;
+CREATE POLICY obra_empresa ON obra
   USING (empresa_id = get_empresa_id());
 `.trim()
 
@@ -147,16 +147,16 @@ function fmt(n: number | null) {
 }
 
 // ── Selector de proyecto ──────────────────────────────────────────────────────
-function ProyectoField({
-  value, onChange, proyectos, hasError = false,
+function ObraField({
+  value, onChange, obras, hasError = false,
 }: {
   value: string
   onChange: (v: string) => void
-  proyectos: string[]
+  obras: string[]
   hasError?: boolean
 }) {
   const [editando, setEditando] = useState(false)
-  const id = 'proyectos-list'
+  const id = 'obras-list'
 
   if (!editando && value) {
     return (
@@ -178,7 +178,7 @@ function ProyectoField({
   return (
     <div style={{ display: 'flex', gap: 6 }}>
       <datalist id={id}>
-        {proyectos.map(p => <option key={p} value={p} />)}
+        {obras.map(o => <option key={o} value={o} />)}
       </datalist>
       <input
         autoFocus
@@ -186,7 +186,7 @@ function ProyectoField({
         value={value}
         onChange={e => onChange(e.target.value)}
         onBlur={() => { if (value) setEditando(false) }}
-        placeholder="Nuevo proyecto o selecciona uno..."
+        placeholder="Nueva obra o selecciona una existente..."
         style={{
           flex: 1, padding: '7px 10px', borderRadius: 7,
           border: `1px solid ${hasError ? '#FCA5A5' : '#93C5FD'}`,
@@ -291,9 +291,9 @@ function VistaPrevia({ cot }: { cot: Cotizacion }) {
 }
 
 // ── Componente principal ──────────────────────────────────────────────────────
-export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId, dbExists, proyectos: proyectosIniciales, dbProyectoExists }: Props) {
+export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId, dbExists, obras: obrasIniciales, dbObraExists }: Props) {
   const [lista, setLista]               = useState<ListItem[]>(inicial)
-  const [proyectos, setProyectos]        = useState<ProyectoRecord[]>(proyectosIniciales)
+  const [obras, setObras]               = useState<ObraRecord[]>(obrasIniciales)
   const [vista, setVista]               = useState<'lista' | 'nueva' | 'revision'>('lista')
   const [cotActual, setCotActual]        = useState<Cotizacion | null>(null)
   const [cotsParsed, setCotsParsed]      = useState<Cotizacion[]>([])
@@ -309,7 +309,7 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
   const fileRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
 
-  const proyectosExistentes = proyectos.map(p => p.nombre)
+  const obrasExistentes = obras.map(o => o.nombre)
 
   async function parsearArchivo(file: File) {
     setParsing(true)
@@ -381,34 +381,34 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
   async function guardar() {
     if (!cotActual) return
 
-    // Validar proyecto obligatorio
+    // Validar obra obligatoria
     if (!cotActual.proyecto.trim()) {
-      setProyectoError('El proyecto es obligatorio. Selecciona uno existente o crea uno nuevo.')
+      setProyectoError('La obra es obligatoria. Selecciona una existente o escribe el nombre de una nueva.')
       setProyectoWarning(true)
       return
     }
 
-    // Bloquear aprobación sin proyecto (segunda línea de defensa)
+    // Bloquear aprobación sin obra
     if (cotActual.estado === 'aprobada' && !cotActual.proyecto.trim()) {
-      setProyectoError('Debes asignar un proyecto antes de aprobar la cotización.')
+      setProyectoError('Debes asignar una obra antes de aprobar la cotización.')
       return
     }
 
     setProyectoError('')
     setSaving(true)
 
-    // Si se aprueba → crear proyecto si no existe
-    if (cotActual.estado === 'aprobada' && dbProyectoExists) {
-      const nombreProy = cotActual.proyecto.trim()
-      const existe = proyectos.find(p => p.nombre.toLowerCase() === nombreProy.toLowerCase())
+    // Si se aprueba → crear obra si no existe
+    if (cotActual.estado === 'aprobada' && dbObraExists) {
+      const nombreObra = cotActual.proyecto.trim()
+      const existe = obras.find(o => o.nombre.toLowerCase() === nombreObra.toLowerCase())
       if (!existe) {
-        const { data: nuevoProy, error: errProy } = await supabase
-          .from('proyecto')
-          .insert({ empresa_id: empresaId, nombre: nombreProy, estado: 'activo' })
+        const { data: nuevaObra, error: errObra } = await supabase
+          .from('obra')
+          .insert({ empresa_id: empresaId, nombre: nombreObra, estado: 'activo' })
           .select()
           .single()
-        if (!errProy && nuevoProy) {
-          setProyectos(prev => [...prev, nuevoProy])
+        if (!errObra && nuevaObra) {
+          setObras(prev => [...prev, nuevaObra])
         }
       }
     }
@@ -431,6 +431,8 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
       return exists ? prev.map(c => c.id === data.id ? item : c) : [item, ...prev]
     })
     setSaving(false)
+    setCotsParsed([])
+    setSeleccion(new Set())
     setVista('lista')
   }
 
@@ -455,8 +457,11 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
     }
 
     setSaving(false)
-    if (errores.length) alert('Errores:\n' + errores.join('\n'))
-    else setVista('lista')
+    // Limpiar parsed para que "Volver" no regrese a revisión y duplique
+    setCotsParsed([])
+    setSeleccion(new Set())
+    if (errores.length) alert('Errores al guardar:\n' + errores.join('\n'))
+    setVista('lista')
   }
 
   function set(field: keyof Cotizacion, value: any) {
@@ -475,7 +480,7 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
   }
 
   // ── DB no existe ──────────────────────────────────────────────────────────
-  if (!dbExists || !dbProyectoExists) {
+  if (!dbExists || !dbObraExists) {
     return (
       <div style={{ padding: 32, display: 'flex', flexDirection: 'column', gap: 16 }}>
         {!dbExists && (
@@ -487,12 +492,12 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
             </pre>
           </div>
         )}
-        {!dbProyectoExists && (
+        {!dbObraExists && (
           <div style={{ background: '#fff', borderRadius: 12, padding: 28, border: '1px solid #E2E8F0', maxWidth: 640 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#1E293B', marginBottom: 8 }}>Tabla requerida: proyecto</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#1E293B', marginBottom: 8 }}>Tabla requerida: obra</div>
             <div style={{ fontSize: 13, color: '#64748B', marginBottom: 16 }}>Ejecuta este SQL en Supabase:</div>
             <pre style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: 16, fontSize: 11, color: '#334155', overflow: 'auto', whiteSpace: 'pre-wrap' }}>
-              {SQL_PROYECTO}
+              {SQL_OBRA}
             </pre>
           </div>
         )}
@@ -565,13 +570,16 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
                       />
                     </div>
 
-                    {/* Proyecto */}
+                    {/* Obra */}
                     <div>
-                      <div style={{ fontSize: 10, color: '#94A3B8', marginBottom: 4, textTransform: 'uppercase', letterSpacing: .5 }}>Proyecto</div>
-                      <ProyectoField
+                      <div style={{ fontSize: 10, color: '#94A3B8', marginBottom: 4, textTransform: 'uppercase', letterSpacing: .5 }}>
+                        Obra <span style={{ color: '#EF4444' }}>*</span>
+                      </div>
+                      <ObraField
                         value={cot.proyecto}
                         onChange={v => updateParsed(i, 'proyecto', v)}
-                        proyectos={proyectosExistentes}
+                        obras={obrasExistentes}
+                        hasError={!cot.proyecto}
                       />
                     </div>
 
@@ -756,7 +764,7 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
           value={cotActual?.estado ?? 'borrador'}
           onChange={e => {
             if (e.target.value === 'aprobada' && !cotActual?.proyecto?.trim()) {
-              setProyectoError('Debes asignar un proyecto antes de aprobar la cotización.')
+              setProyectoError('Debes asignar una obra antes de aprobar la cotización.')
               setProyectoWarning(true)
               return
             }
@@ -801,39 +809,39 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
                 {/* Proyecto con autocomplete */}
                 <div>
                   <div style={{ fontSize: 10, color: '#94A3B8', marginBottom: 3, textTransform: 'uppercase', letterSpacing: .5 }}>
-                    Proyecto <span style={{ color: '#EF4444' }}>*</span>
+                    Obra <span style={{ color: '#EF4444' }}>*</span>
                   </div>
 
-                  {/* Banner: no se detectó proyecto en el Excel */}
+                  {/* Banner: no se detectó obra en el Excel */}
                   {proyectoWarning && !cotActual.proyecto && (
                     <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: '#C2410C', marginBottom: 4 }}>
-                        ⚠ No se detectó proyecto en el Excel
+                        ⚠ No se detectó obra en el Excel
                       </div>
                       <div style={{ fontSize: 11, color: '#9A3412' }}>
-                        Selecciona un proyecto existente o escribe el nombre de uno nuevo para crearlo al guardar.
+                        Selecciona una obra existente o escribe el nombre de una nueva para crearla al aprobar.
                       </div>
                     </div>
                   )}
 
-                  <ProyectoField
+                  <ObraField
                     value={cotActual.proyecto}
                     onChange={v => { set('proyecto', v); if (v) { setProyectoWarning(false); setProyectoError('') } }}
-                    proyectos={proyectosExistentes}
+                    obras={obrasExistentes}
                     hasError={proyectoWarning && !cotActual.proyecto}
                   />
 
-                  {/* Error al intentar guardar/aprobar sin proyecto */}
+                  {/* Error al intentar guardar/aprobar sin obra */}
                   {proyectoError && (
                     <div style={{ marginTop: 6, fontSize: 11, color: '#DC2626', display: 'flex', alignItems: 'center', gap: 4 }}>
                       ✕ {proyectoError}
                     </div>
                   )}
 
-                  {/* Indicador: proyecto nuevo (se creará al aprobar) */}
-                  {cotActual.proyecto && !proyectos.find(p => p.nombre.toLowerCase() === cotActual.proyecto.toLowerCase()) && (
+                  {/* Indicador: obra nueva (se creará al aprobar) */}
+                  {cotActual.proyecto && !obras.find(o => o.nombre.toLowerCase() === cotActual.proyecto.toLowerCase()) && (
                     <div style={{ marginTop: 5, fontSize: 10, color: '#6366F1', display: 'flex', alignItems: 'center', gap: 4 }}>
-                      ✦ Proyecto nuevo — se creará automáticamente al aprobar
+                      ✦ Obra nueva — se creará automáticamente al aprobar
                     </div>
                   )}
                 </div>

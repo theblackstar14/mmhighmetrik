@@ -14,20 +14,20 @@ async function getDatos() {
 
   const dbExists = !(errCot && (errCot.message?.includes('does not exist') || (errCot as any).code === '42P01'))
 
-  const { data: proyectos, error: errProy } = await supabase
-    .from('proyecto')
+  const { data: obras, error: errObra } = await supabase
+    .from('obra')
     .select('id, nombre, estado')
     .eq('empresa_id', empresaId)
     .order('nombre')
 
-  const dbProyectoExists = !(errProy && (errProy.message?.includes('does not exist') || (errProy as any).code === '42P01'))
+  const dbObraExists = !(errObra && (errObra.message?.includes('does not exist') || (errObra as any).code === '42P01'))
 
   return {
-    cotizaciones:     cotizaciones ?? [],
+    cotizaciones: cotizaciones ?? [],
     empresaId,
     dbExists,
-    proyectos:        proyectos ?? [],
-    dbProyectoExists,
+    obras:        obras ?? [],
+    dbObraExists,
   }
 }
 
