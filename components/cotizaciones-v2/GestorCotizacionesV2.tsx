@@ -781,15 +781,20 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
                     </tr>
                   </thead>
                   <tbody>
-                    {cotActual.partidas.map((p, i) => (
-                      <tr key={i} style={{ borderTop: '1px solid #F1F5F9', background: p.es_titulo ? '#F8FAFC' : '#fff' }}>
+                    {cotActual.partidas.map((p, i) => {
+                      const lvl     = p.item ? (p.item.match(/\./g) || []).length : 0
+                      const lvlBg   = ['#fff','#F8FAFC','#F1F5F9','#EEF2FF'][Math.min(lvl, 3)]
+                      const lvlCol  = ['#1E293B','#334155','#64748B','#94A3B8'][Math.min(lvl, 3)]
+                      const indent  = lvl * 16
+                      return (
+                      <tr key={i} style={{ borderTop: '1px solid #F1F5F9', background: lvlBg }}>
                         <td style={{ padding: '5px 8px' }}>
                           <input value={p.item} onChange={e => { const ps = [...cotActual.partidas]; ps[i] = { ...ps[i], item: e.target.value }; set('partidas', ps) }}
                             style={{ width: 70, padding: '3px 6px', border: '1px solid #E2E8F0', borderRadius: 4, fontSize: 11 }} />
                         </td>
-                        <td style={{ padding: '5px 8px' }}>
+                        <td style={{ paddingLeft: indent + 6, paddingTop: 5, paddingBottom: 5, paddingRight: 8 }}>
                           <input value={p.descripcion} onChange={e => { const ps = [...cotActual.partidas]; ps[i] = { ...ps[i], descripcion: e.target.value }; set('partidas', ps) }}
-                            style={{ width: '100%', minWidth: 200, padding: '3px 6px', border: '1px solid #E2E8F0', borderRadius: 4, fontSize: 11, fontWeight: p.es_titulo ? 700 : 400 }} />
+                            style={{ width: '100%', minWidth: 200, padding: '3px 6px', border: '1px solid #E2E8F0', borderRadius: 4, fontSize: 11, fontWeight: p.es_titulo ? 700 : 400, color: lvlCol }} />
                         </td>
                         <td style={{ padding: '5px 8px' }}>
                           <input value={p.unidad ?? ''} onChange={e => { const ps = [...cotActual.partidas]; ps[i] = { ...ps[i], unidad: e.target.value }; set('partidas', ps) }}
@@ -811,7 +816,8 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
                             style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', fontSize: 14 }}>×</button>
                         </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
