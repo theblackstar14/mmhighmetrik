@@ -53,11 +53,32 @@ interface ListItem {
   created_at: string
 }
 
+interface ProyectoRecord {
+  id: string
+  nombre: string
+  estado: string
+}
+
 interface Props {
   cotizaciones: ListItem[]
   empresaId: string
   dbExists: boolean
+  proyectos: ProyectoRecord[]
+  dbProyectoExists: boolean
 }
+
+const SQL_PROYECTO = `
+CREATE TABLE proyecto (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  empresa_id  uuid NOT NULL REFERENCES empresa(id) ON DELETE CASCADE,
+  nombre      text NOT NULL,
+  estado      text NOT NULL DEFAULT 'activo',
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE proyecto ENABLE ROW LEVEL SECURITY;
+CREATE POLICY proyecto_empresa ON proyecto
+  USING (empresa_id = get_empresa_id());
+`.trim()
 
 const SQL_COTIZACION = `
 CREATE TABLE cotizacion (
@@ -127,11 +148,12 @@ function fmt(n: number | null) {
 
 // ── Selector de proyecto ──────────────────────────────────────────────────────
 function ProyectoField({
-  value, onChange, proyectos,
+  value, onChange, proyectos, hasError = false,
 }: {
   value: string
   onChange: (v: string) => void
   proyectos: string[]
+  hasError?: boolean
 }) {
   const [editando, setEditando] = useState(false)
   const id = 'proyectos-list'
@@ -167,8 +189,9 @@ function ProyectoField({
         placeholder="Nuevo proyecto o selecciona uno..."
         style={{
           flex: 1, padding: '7px 10px', borderRadius: 7,
-          border: '1px solid #93C5FD', fontSize: 12, boxSizing: 'border-box',
-          outline: 'none',
+          border: `1px solid ${hasError ? '#FCA5A5' : '#93C5FD'}`,
+          fontSize: 12, boxSizing: 'border-box', outline: 'none',
+          background: hasError ? '#FEF2F2' : '#fff',
         }}
       />
       {value && (
@@ -268,8 +291,9 @@ function VistaPrevia({ cot }: { cot: Cotizacion }) {
 }
 
 // ── Componente principal ──────────────────────────────────────────────────────
-export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId, dbExists }: Props) {
+export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId, dbExists, proyectos: proyectosIniciales, dbProyectoExists }: Props) {
   const [lista, setLista]               = useState<ListItem[]>(inicial)
+  const [proyectos, setProyectos]        = useState<ProyectoRecord[]>(proyectosIniciales)
   const [vista, setVista]               = useState<'lista' | 'nueva' | 'revision'>('lista')
   const [cotActual, setCotActual]        = useState<Cotizacion | null>(null)
   const [cotsParsed, setCotsParsed]      = useState<Cotizacion[]>([])
@@ -278,12 +302,14 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
   const [parsing, setParsing]            = useState(false)
   const [parseError, setParseError]      = useState('')
   const [parseWarning, setParseWarning]  = useState('')
+  const [proyectoWarning, setProyectoWarning] = useState(false)
+  const [proyectoError, setProyectoError]     = useState('')
   const [saving, setSaving]              = useState(false)
   const [dragging, setDragging]          = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
 
-  const proyectosExistentes = [...new Set(lista.map(c => c.proyecto).filter(Boolean))]
+  const proyectosExistentes = proyectos.map(p => p.nombre)
 
   async function parsearArchivo(file: File) {
     setParsing(true)
@@ -310,6 +336,7 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
         setCotActual(cots[0])
         setVista('nueva')
         setTab('form')
+        setProyectoWarning(!cots[0].proyecto)
       } else {
         setCotsParsed(cots)
         setSeleccion(new Set(cots.map((_, i) => i)))
@@ -353,7 +380,39 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
 
   async function guardar() {
     if (!cotActual) return
+
+    // Validar proyecto obligatorio
+    if (!cotActual.proyecto.trim()) {
+      setProyectoError('El proyecto es obligatorio. Selecciona uno existente o crea uno nuevo.')
+      setProyectoWarning(true)
+      return
+    }
+
+    // Bloquear aprobación sin proyecto (segunda línea de defensa)
+    if (cotActual.estado === 'aprobada' && !cotActual.proyecto.trim()) {
+      setProyectoError('Debes asignar un proyecto antes de aprobar la cotización.')
+      return
+    }
+
+    setProyectoError('')
     setSaving(true)
+
+    // Si se aprueba → crear proyecto si no existe
+    if (cotActual.estado === 'aprobada' && dbProyectoExists) {
+      const nombreProy = cotActual.proyecto.trim()
+      const existe = proyectos.find(p => p.nombre.toLowerCase() === nombreProy.toLowerCase())
+      if (!existe) {
+        const { data: nuevoProy, error: errProy } = await supabase
+          .from('proyecto')
+          .insert({ empresa_id: empresaId, nombre: nombreProy, estado: 'activo' })
+          .select()
+          .single()
+        if (!errProy && nuevoProy) {
+          setProyectos(prev => [...prev, nuevoProy])
+        }
+      }
+    }
+
     const payload = buildPayload(cotActual)
     const { data, error } = cotActual.id
       ? await supabase.from('cotizacion').update(payload).eq('id', cotActual.id).select().single()
@@ -416,16 +475,27 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
   }
 
   // ── DB no existe ──────────────────────────────────────────────────────────
-  if (!dbExists) {
+  if (!dbExists || !dbProyectoExists) {
     return (
-      <div style={{ padding: 32 }}>
-        <div style={{ background: '#fff', borderRadius: 12, padding: 28, border: '1px solid #E2E8F0', maxWidth: 640 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: '#1E293B', marginBottom: 8 }}>Tabla requerida: cotizacion</div>
-          <div style={{ fontSize: 13, color: '#64748B', marginBottom: 16 }}>Ejecuta este SQL en Supabase:</div>
-          <pre style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: 16, fontSize: 11, color: '#334155', overflow: 'auto', whiteSpace: 'pre-wrap' }}>
-            {SQL_COTIZACION}
-          </pre>
-        </div>
+      <div style={{ padding: 32, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {!dbExists && (
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, border: '1px solid #E2E8F0', maxWidth: 640 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#1E293B', marginBottom: 8 }}>Tabla requerida: cotizacion</div>
+            <div style={{ fontSize: 13, color: '#64748B', marginBottom: 16 }}>Ejecuta este SQL en Supabase:</div>
+            <pre style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: 16, fontSize: 11, color: '#334155', overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+              {SQL_COTIZACION}
+            </pre>
+          </div>
+        )}
+        {!dbProyectoExists && (
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, border: '1px solid #E2E8F0', maxWidth: 640 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#1E293B', marginBottom: 8 }}>Tabla requerida: proyecto</div>
+            <div style={{ fontSize: 13, color: '#64748B', marginBottom: 16 }}>Ejecuta este SQL en Supabase:</div>
+            <pre style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: 16, fontSize: 11, color: '#334155', overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+              {SQL_PROYECTO}
+            </pre>
+          </div>
+        )}
       </div>
     )
   }
@@ -682,8 +752,19 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
             </button>
           ))}
         </div>
-        <select value={cotActual?.estado ?? 'borrador'} onChange={e => set('estado', e.target.value)}
-          style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12 }}>
+        <select
+          value={cotActual?.estado ?? 'borrador'}
+          onChange={e => {
+            if (e.target.value === 'aprobada' && !cotActual?.proyecto?.trim()) {
+              setProyectoError('Debes asignar un proyecto antes de aprobar la cotización.')
+              setProyectoWarning(true)
+              return
+            }
+            setProyectoError('')
+            set('estado', e.target.value)
+          }}
+          style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12 }}
+        >
           {['borrador', 'enviada', 'aprobada', 'rechazada'].map(s => (
             <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
           ))}
@@ -719,12 +800,42 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
                 ))}
                 {/* Proyecto con autocomplete */}
                 <div>
-                  <div style={{ fontSize: 10, color: '#94A3B8', marginBottom: 3, textTransform: 'uppercase', letterSpacing: .5 }}>Proyecto</div>
+                  <div style={{ fontSize: 10, color: '#94A3B8', marginBottom: 3, textTransform: 'uppercase', letterSpacing: .5 }}>
+                    Proyecto <span style={{ color: '#EF4444' }}>*</span>
+                  </div>
+
+                  {/* Banner: no se detectó proyecto en el Excel */}
+                  {proyectoWarning && !cotActual.proyecto && (
+                    <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#C2410C', marginBottom: 4 }}>
+                        ⚠ No se detectó proyecto en el Excel
+                      </div>
+                      <div style={{ fontSize: 11, color: '#9A3412' }}>
+                        Selecciona un proyecto existente o escribe el nombre de uno nuevo para crearlo al guardar.
+                      </div>
+                    </div>
+                  )}
+
                   <ProyectoField
                     value={cotActual.proyecto}
-                    onChange={v => set('proyecto', v)}
+                    onChange={v => { set('proyecto', v); if (v) { setProyectoWarning(false); setProyectoError('') } }}
                     proyectos={proyectosExistentes}
+                    hasError={proyectoWarning && !cotActual.proyecto}
                   />
+
+                  {/* Error al intentar guardar/aprobar sin proyecto */}
+                  {proyectoError && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: '#DC2626', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      ✕ {proyectoError}
+                    </div>
+                  )}
+
+                  {/* Indicador: proyecto nuevo (se creará al aprobar) */}
+                  {cotActual.proyecto && !proyectos.find(p => p.nombre.toLowerCase() === cotActual.proyecto.toLowerCase()) && (
+                    <div style={{ marginTop: 5, fontSize: 10, color: '#6366F1', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      ✦ Proyecto nuevo — se creará automáticamente al aprobar
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
