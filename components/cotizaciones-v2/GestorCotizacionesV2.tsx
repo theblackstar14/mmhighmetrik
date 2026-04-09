@@ -57,6 +57,7 @@ interface ObraRecord {
   id: string
   nombre: string
   estado: string
+  codigo?: string
 }
 
 interface Props {
@@ -397,15 +398,23 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
     setProyectoError('')
     setSaving(true)
 
-    // Si se aprueba → crear obra si no existe
+    // Si se aprueba → crear obra en tabla proyecto si no existe
     if (cotActual.estado === 'aprobada' && dbObraExists) {
       const nombreObra = cotActual.proyecto.trim()
       const existe = obras.find(o => o.nombre.toLowerCase() === nombreObra.toLowerCase())
       if (!existe) {
         const { data: nuevaObra, error: errObra } = await supabase
-          .from('obra')
-          .insert({ empresa_id: empresaId, nombre: nombreObra, estado: 'activo' })
-          .select()
+          .from('proyecto')
+          .insert({
+            empresa_id:           empresaId,
+            nombre:               nombreObra,
+            cliente:              cotActual.cliente || '',
+            tipo:                 'privado',
+            estado:               'activo',
+            presupuesto_contrato: cotActual.total ?? 0,
+            avance_fisico:        0,
+          })
+          .select('id, nombre, estado, codigo')
           .single()
         if (!errObra && nuevaObra) {
           setObras(prev => [...prev, nuevaObra])
@@ -480,27 +489,16 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
   }
 
   // ── DB no existe ──────────────────────────────────────────────────────────
-  if (!dbExists || !dbObraExists) {
+  if (!dbExists) {
     return (
-      <div style={{ padding: 32, display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {!dbExists && (
-          <div style={{ background: '#fff', borderRadius: 12, padding: 28, border: '1px solid #E2E8F0', maxWidth: 640 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#1E293B', marginBottom: 8 }}>Tabla requerida: cotizacion</div>
-            <div style={{ fontSize: 13, color: '#64748B', marginBottom: 16 }}>Ejecuta este SQL en Supabase:</div>
-            <pre style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: 16, fontSize: 11, color: '#334155', overflow: 'auto', whiteSpace: 'pre-wrap' }}>
-              {SQL_COTIZACION}
-            </pre>
-          </div>
-        )}
-        {!dbObraExists && (
-          <div style={{ background: '#fff', borderRadius: 12, padding: 28, border: '1px solid #E2E8F0', maxWidth: 640 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#1E293B', marginBottom: 8 }}>Tabla requerida: obra</div>
-            <div style={{ fontSize: 13, color: '#64748B', marginBottom: 16 }}>Ejecuta este SQL en Supabase:</div>
-            <pre style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: 16, fontSize: 11, color: '#334155', overflow: 'auto', whiteSpace: 'pre-wrap' }}>
-              {SQL_OBRA}
-            </pre>
-          </div>
-        )}
+      <div style={{ padding: 32 }}>
+        <div style={{ background: '#fff', borderRadius: 12, padding: 28, border: '1px solid #E2E8F0', maxWidth: 640 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#1E293B', marginBottom: 8 }}>Tabla requerida: cotizacion</div>
+          <div style={{ fontSize: 13, color: '#64748B', marginBottom: 16 }}>Ejecuta este SQL en Supabase:</div>
+          <pre style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: 16, fontSize: 11, color: '#334155', overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+            {SQL_COTIZACION}
+          </pre>
+        </div>
       </div>
     )
   }

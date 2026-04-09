@@ -14,20 +14,19 @@ async function getDatos() {
 
   const dbExists = !(errCot && (errCot.message?.includes('does not exist') || (errCot as any).code === '42P01'))
 
-  const { data: obras, error: errObra } = await supabase
-    .from('obra')
-    .select('id, nombre, estado')
+  // Usa la tabla proyecto existente (la misma que usa la página de Obras)
+  const { data: obras } = await supabase
+    .from('proyecto')
+    .select('id, nombre, estado, codigo')
     .eq('empresa_id', empresaId)
     .order('nombre')
-
-  const dbObraExists = !(errObra && (errObra.message?.includes('does not exist') || (errObra as any).code === '42P01'))
 
   return {
     cotizaciones: cotizaciones ?? [],
     empresaId,
     dbExists,
     obras:        obras ?? [],
-    dbObraExists,
+    dbObraExists: true, // tabla proyecto siempre existe si Obras funciona
   }
 }
 
