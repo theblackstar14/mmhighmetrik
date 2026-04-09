@@ -16,6 +16,7 @@ export interface PartidaDetalle {
   fecha_fin: string | null
   responsable: string | null
   es_titulo?: boolean
+  cotizacion_id?: string | null
 }
 
 export interface ContratoItem {
@@ -132,7 +133,7 @@ export async function getObraDetalle(id: string): Promise<ObraDetalle | null> {
     { data: flujo },
     { data: cotizaciones },
   ] = await Promise.all([
-    supabase.from('partida').select('id,codigo,descripcion,unidad,metrado,precio_unitario,total,avance_fisico,fecha_inicio,fecha_fin,responsable,es_titulo').eq('proyecto_id', id).order('codigo'),
+    supabase.from('partida').select('id,codigo,descripcion,unidad,metrado,precio_unitario,total,avance_fisico,fecha_inicio,fecha_fin,responsable,es_titulo,cotizacion_id').eq('proyecto_id', id).order('codigo'),
     supabase.from('contrato').select('id,tipo,numero,monto,moneda,fecha_firma,fecha_inicio,fecha_fin,estado').eq('proyecto_id', id),
     supabase.from('costo_directo').select('id,categoria,descripcion,monto,fecha').eq('proyecto_id', id).order('fecha', { ascending: false }),
     supabase.from('factura').select('id,tipo,serie_numero,nombre_contraparte,total,estado,fecha_emision,fecha_vencimiento').eq('proyecto_id', id).order('fecha_emision', { ascending: false }),

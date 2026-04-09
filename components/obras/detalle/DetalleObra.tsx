@@ -131,6 +131,7 @@ export default function DetalleObra({ obra: inicial }: { obra: ObraDetalle }) {
   const [panelSaving,     setPanelSaving]     = useState(false)
   const [showImportExcel, setShowImportExcel] = useState(false)
   const [importando,      setImportando]      = useState(false)
+  const [selectedCotId,   setSelectedCotId]   = useState<string | null>(null)
   const importFileRef = useRef<HTMLInputElement>(null)
 
   function setF(k: string, v: string) { setFormPartida(f => ({ ...f, [k]: v })) }
@@ -440,10 +441,24 @@ export default function DetalleObra({ obra: inicial }: { obra: ObraDetalle }) {
 
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Presupuesto por partidas</div>
-                <div style={{ fontSize: 10.5, color: '#94A3B8', marginTop: 2 }}>
-                  {partidas.filter(p => !p.es_titulo).length} partidas · {partidas.filter(p => !!p.es_titulo).length} capítulos
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {selectedCotId && (
+                  <button onClick={() => { setSelectedCotId(null); setShowForm(false) }}
+                    style={{ padding: '5px 11px', borderRadius: 6, border: '1px solid #E2E8F0', background: '#fff', fontSize: 11.5, fontWeight: 600, color: '#64748B', cursor: 'pointer' }}>
+                    ← Volver
+                  </button>
+                )}
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>
+                    {selectedCotId
+                      ? (() => { const c = cotizaciones.find(x => x.id === selectedCotId); return c ? `${c.numero_cot} · rev ${c.revision}` : 'Partidas manuales' })()
+                      : 'Presupuesto por partidas'}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: '#94A3B8', marginTop: 2 }}>
+                    {selectedCotId
+                      ? `${partidas.filter(p => (p.cotizacion_id ?? 'MANUAL') === selectedCotId && !p.es_titulo).length} partidas`
+                      : `${partidas.filter(p => !p.es_titulo).length} partidas · ${partidas.filter(p => !!p.es_titulo).length} capítulos`}
+                  </div>
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -451,23 +466,23 @@ export default function DetalleObra({ obra: inicial }: { obra: ObraDetalle }) {
                   <div style={{ fontSize: 9, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '.6px' }}>Total presupuesto</div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#2563EB' }}>{fmt(partidas.reduce((s, p) => s + (p.total ?? 0), 0))}</div>
                 </div>
-                <button
-                  onClick={() => setShowImportExcel(v => !v)}
-                  style={{ padding: '7px 12px', borderRadius: 7, border: `1px solid ${showImportExcel ? '#93C5FD' : '#E2E8F0'}`, background: showImportExcel ? '#EFF6FF' : '#fff', fontSize: 11.5, fontWeight: 600, color: showImportExcel ? '#2563EB' : '#0F172A', cursor: 'pointer' }}
-                >
-                  ↑ Excel
-                </button>
-                <button
-                  onClick={() => { setShowForm(true); setErrorPartida('') }}
-                  style={{ padding: '7px 12px', borderRadius: 7, border: 'none', background: '#0F172A', color: '#fff', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
-                >
-                  + Nueva
-                </button>
+                {!selectedCotId && (
+                  <button onClick={() => setShowImportExcel(v => !v)}
+                    style={{ padding: '7px 12px', borderRadius: 7, border: `1px solid ${showImportExcel ? '#93C5FD' : '#E2E8F0'}`, background: showImportExcel ? '#EFF6FF' : '#fff', fontSize: 11.5, fontWeight: 600, color: showImportExcel ? '#2563EB' : '#0F172A', cursor: 'pointer' }}>
+                    ↑ Excel
+                  </button>
+                )}
+                {selectedCotId && (
+                  <button onClick={() => { setShowForm(true); setErrorPartida('') }}
+                    style={{ padding: '7px 12px', borderRadius: 7, border: 'none', background: '#0F172A', color: '#fff', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+                    + Nueva
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Import Excel */}
-            {showImportExcel && (
+            {/* Import Excel (solo en vista grupos) */}
+            {!selectedCotId && showImportExcel && (
               <div style={{ background: '#F8FAFC', border: '2px dashed #CBD5E1', borderRadius: 12, padding: '16px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#0F172A', marginBottom: 3 }}>Importar partidas desde Excel</div>
@@ -476,120 +491,164 @@ export default function DetalleObra({ obra: inicial }: { obra: ObraDetalle }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                   {importando && <span style={{ fontSize: 11, color: '#64748B' }}>Procesando…</span>}
                   <input ref={importFileRef} type="file" accept=".xlsx,.xls" onChange={handleImportExcel} style={{ display: 'none' }} />
-                  <button
-                    onClick={() => importFileRef.current?.click()}
-                    disabled={importando}
-                    style={{ padding: '8px 16px', borderRadius: 7, border: 'none', background: '#2563EB', color: '#fff', fontSize: 11.5, fontWeight: 600, cursor: importando ? 'not-allowed' : 'pointer', opacity: importando ? .65 : 1 }}
-                  >
+                  <button onClick={() => importFileRef.current?.click()} disabled={importando}
+                    style={{ padding: '8px 16px', borderRadius: 7, border: 'none', background: '#2563EB', color: '#fff', fontSize: 11.5, fontWeight: 600, cursor: importando ? 'not-allowed' : 'pointer', opacity: importando ? .65 : 1 }}>
                     {importando ? '…' : 'Seleccionar .xlsx'}
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Nueva partida inline */}
-            {showForm && (
-              <div style={{ background: '#F0F9FF', border: '1.5px solid #93C5FD', borderRadius: 12, padding: 18 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#0F172A', marginBottom: 14 }}>Nueva partida</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr 70px 90px 100px', gap: 8 }}>
-                  {[
-                    { label: 'Código', key: 'codigo', placeholder: '01.01', type: 'text' },
-                    { label: 'Descripción', key: 'descripcion', placeholder: 'Descripción de la partida', type: 'text' },
-                    { label: 'Unidad', key: 'unidad', placeholder: 'm²', type: 'text' },
-                    { label: 'Metrado', key: 'metrado', placeholder: '0', type: 'number' },
-                    { label: 'P. Unitario', key: 'precio_unitario', placeholder: '0.00', type: 'number' },
-                  ].map(f => (
-                    <div key={f.key}>
-                      <div style={{ fontSize: 10, color: '#64748B', marginBottom: 3 }}>{f.label}</div>
-                      <input
-                        type={f.type}
-                        value={(formPartida as any)[f.key]}
-                        onChange={e => setF(f.key, e.target.value)}
-                        placeholder={f.placeholder}
-                        min={f.type === 'number' ? '0' : undefined}
-                        style={{ width: '100%', padding: '7px 8px', borderRadius: 6, border: '1px solid #BAE6FD', fontSize: 11, outline: 'none', boxSizing: 'border-box' }}
-                      />
-                    </div>
-                  ))}
+            {/* ── Vista grupos (por cotización) ── */}
+            {!selectedCotId && (() => {
+              const grupos: Record<string, PartidaDetalle[]> = {}
+              for (const p of partidas) {
+                const key = p.cotizacion_id ?? 'MANUAL'
+                if (!grupos[key]) grupos[key] = []
+                grupos[key].push(p)
+              }
+              const keys = Object.keys(grupos)
+              if (keys.length === 0) return (
+                <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 12, padding: '48px 0', textAlign: 'center' }}>
+                  <div style={{ fontSize: 30, marginBottom: 10 }}>📐</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>Sin partidas registradas</div>
+                  <div style={{ fontSize: 10.5, color: '#94A3B8' }}>Aprueba una cotización para importar partidas automáticamente</div>
                 </div>
-                <div style={{ marginTop: 8 }}>
-                  <div style={{ fontSize: 10, color: '#64748B', marginBottom: 3 }}>Responsable (opcional)</div>
-                  <input value={formPartida.responsable} onChange={e => setF('responsable', e.target.value)}
-                    placeholder="Nombre del responsable"
-                    style={{ width: 260, padding: '7px 8px', borderRadius: 6, border: '1px solid #BAE6FD', fontSize: 11, outline: 'none', boxSizing: 'border-box' }} />
+              )
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {keys.map(key => {
+                    const gPartidas = grupos[key]
+                    const cot       = cotizaciones.find(c => c.id === key)
+                    const esManual  = key === 'MANUAL'
+                    const total     = gPartidas.reduce((s, p) => s + (p.total ?? 0), 0)
+                    const nPart     = gPartidas.filter(p => !p.es_titulo).length
+                    const aprobada  = cot?.estado === 'aprobada'
+                    const st        = ESTADO_COT[cot?.estado ?? ''] ?? { color: '#64748B', bg: '#F1F5F9' }
+                    return (
+                      <button key={key} onClick={() => setSelectedCotId(key)}
+                        style={{
+                          background: '#fff', border: `1.5px solid ${aprobada ? '#86EFAC' : '#E2E8F0'}`,
+                          borderRadius: 12, padding: '16px 20px', textAlign: 'left', cursor: 'pointer',
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          width: '100%', transition: 'box-shadow .15s, transform .1s',
+                          boxShadow: aprobada ? '0 0 0 2px #DCFCE7' : undefined,
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,.08)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
+                        onMouseLeave={e => { e.currentTarget.style.boxShadow = aprobada ? '0 0 0 2px #DCFCE7' : 'none'; e.currentTarget.style.transform = 'none' }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                            {!esManual && cot && (
+                              <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: st.bg, color: st.color }}>
+                                {cot.estado}
+                              </span>
+                            )}
+                            <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0F172A' }}>
+                              {esManual ? 'Partidas manuales' : (cot?.numero_cot ?? 'Cotización')}
+                            </span>
+                            {!esManual && cot && (
+                              <span style={{ fontSize: 10.5, color: '#94A3B8' }}>· rev {cot.revision}</span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 10.5, color: '#64748B' }}>
+                            {nPart} partida{nPart !== 1 ? 's' : ''} · {gPartidas.filter(p => !!p.es_titulo).length} capítulos
+                            {!esManual && cot?.fecha ? ` · ${new Date(cot.fecha + 'T12:00:00').toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, marginLeft: 16 }}>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 9, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '.5px' }}>Total</div>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: aprobada ? '#15803D' : '#0F172A' }}>{fmt(total)}</div>
+                          </div>
+                          <span style={{ fontSize: 20, color: '#CBD5E1' }}>›</span>
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
-                {errorPartida && <div style={{ marginTop: 6, fontSize: 10.5, color: '#DC2626' }}>{errorPartida}</div>}
-                <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-                  <button onClick={crearPartida} disabled={savingPartida}
-                    style={{ padding: '7px 16px', borderRadius: 7, border: 'none', background: '#0F172A', color: '#fff', fontSize: 11.5, fontWeight: 600, cursor: savingPartida ? 'not-allowed' : 'pointer', opacity: savingPartida ? .7 : 1 }}>
-                    {savingPartida ? 'Guardando…' : 'Guardar partida'}
-                  </button>
-                  <button onClick={() => { setShowForm(false); setFormPartida(formVacio); setErrorPartida('') }}
-                    style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid #E2E8F0', background: '#fff', fontSize: 11.5, color: '#64748B', cursor: 'pointer' }}>
-                    Cancelar
-                  </button>
-                </div>
-              </div>
-            )}
+              )
+            })()}
 
-            {/* Cards grid */}
-            {partidas.length === 0 ? (
-              <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 12, padding: '48px 0', textAlign: 'center' }}>
-                <div style={{ fontSize: 30, marginBottom: 10 }}>📐</div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>Sin partidas registradas</div>
-                <div style={{ fontSize: 10.5, color: '#94A3B8' }}>Importa desde Excel o agrega manualmente</div>
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
-                {partidas.map(p => {
-                  const titulo = !!p.es_titulo
-                  const avance = p.avance_fisico ?? 0
-                  const avColor = avance >= 100 ? '#94A3B8' : avance >= 70 ? '#10B981' : avance >= 40 ? '#F59E0B' : '#EF4444'
-                  return (
-                    <button
-                      key={p.id}
-                      onClick={() => abrirPanel(p)}
-                      style={{
-                        background: titulo ? 'linear-gradient(135deg,#EEF2FF,#F5F3FF)' : '#fff',
-                        border: `1.5px solid ${titulo ? '#C7D2FE' : '#E2E8F0'}`,
-                        borderRadius: 12, padding: 14, textAlign: 'left',
-                        cursor: 'pointer', transition: 'box-shadow .15s, transform .1s', width: '100%',
-                      }}
-                      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,.08)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
-                      onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none' }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
-                        <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: titulo ? '#E0E7FF' : '#F1F5F9', color: titulo ? '#4338CA' : '#64748B', fontFamily: 'monospace' }}>
-                          {p.codigo}
-                        </span>
-                        {titulo && <span style={{ fontSize: 8.5, fontWeight: 700, color: '#6366F1', textTransform: 'uppercase', letterSpacing: '.5px' }}>Capítulo</span>}
+            {/* ── Vista partidas de un grupo ── */}
+            {selectedCotId && (() => {
+              const grupoPartidas = partidas.filter(p => (p.cotizacion_id ?? 'MANUAL') === selectedCotId)
+              return (
+                <>
+                  {showForm && (
+                    <div style={{ background: '#F0F9FF', border: '1.5px solid #93C5FD', borderRadius: 12, padding: 18 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#0F172A', marginBottom: 14 }}>Nueva partida</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr 70px 90px 100px', gap: 8 }}>
+                        {[
+                          { label: 'Código', key: 'codigo', placeholder: '01.01', type: 'text' },
+                          { label: 'Descripción', key: 'descripcion', placeholder: 'Descripción de la partida', type: 'text' },
+                          { label: 'Unidad', key: 'unidad', placeholder: 'm²', type: 'text' },
+                          { label: 'Metrado', key: 'metrado', placeholder: '0', type: 'number' },
+                          { label: 'P. Unitario', key: 'precio_unitario', placeholder: '0.00', type: 'number' },
+                        ].map(f => (
+                          <div key={f.key}>
+                            <div style={{ fontSize: 10, color: '#64748B', marginBottom: 3 }}>{f.label}</div>
+                            <input type={f.type} value={(formPartida as any)[f.key]} onChange={e => setF(f.key, e.target.value)}
+                              placeholder={f.placeholder} min={f.type === 'number' ? '0' : undefined}
+                              style={{ width: '100%', padding: '7px 8px', borderRadius: 6, border: '1px solid #BAE6FD', fontSize: 11, outline: 'none', boxSizing: 'border-box' }} />
+                          </div>
+                        ))}
                       </div>
-                      <div style={{ fontSize: 11.5, fontWeight: titulo ? 700 : 500, color: '#0F172A', lineHeight: 1.35, marginBottom: titulo ? 8 : 10, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>
-                        {p.descripcion}
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{ fontSize: 10, color: '#64748B', marginBottom: 3 }}>Responsable (opcional)</div>
+                        <input value={formPartida.responsable} onChange={e => setF('responsable', e.target.value)} placeholder="Nombre del responsable"
+                          style={{ width: 260, padding: '7px 8px', borderRadius: 6, border: '1px solid #BAE6FD', fontSize: 11, outline: 'none', boxSizing: 'border-box' }} />
                       </div>
-                      {!titulo && (
-                        <div style={{ display: 'flex', gap: 12, fontSize: 9.5, color: '#94A3B8', marginBottom: 8 }}>
-                          <span>{p.unidad || '—'}</span>
-                          <span>×{Number(p.metrado).toLocaleString()}</span>
-                          <span>S/{Number(p.precio_unitario).toLocaleString()}</span>
-                        </div>
-                      )}
-                      {!titulo && (
-                        <div style={{ height: 3, background: '#F1F5F9', borderRadius: 2, overflow: 'hidden', marginBottom: 8 }}>
-                          <div style={{ height: '100%', width: `${avance}%`, background: avColor, borderRadius: 2 }} />
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 9.5, color: '#94A3B8' }}>{titulo ? 'Subtotal' : `Avance: ${avance}%`}</span>
-                        <span style={{ fontSize: 12.5, fontWeight: 700, color: titulo ? '#4338CA' : '#0F172A' }}>
-                          S/ {Number(p.total ?? 0).toLocaleString()}
-                        </span>
+                      {errorPartida && <div style={{ marginTop: 6, fontSize: 10.5, color: '#DC2626' }}>{errorPartida}</div>}
+                      <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+                        <button onClick={crearPartida} disabled={savingPartida}
+                          style={{ padding: '7px 16px', borderRadius: 7, border: 'none', background: '#0F172A', color: '#fff', fontSize: 11.5, fontWeight: 600, cursor: savingPartida ? 'not-allowed' : 'pointer', opacity: savingPartida ? .7 : 1 }}>
+                          {savingPartida ? 'Guardando…' : 'Guardar partida'}
+                        </button>
+                        <button onClick={() => { setShowForm(false); setFormPartida(formVacio); setErrorPartida('') }}
+                          style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid #E2E8F0', background: '#fff', fontSize: 11.5, color: '#64748B', cursor: 'pointer' }}>
+                          Cancelar
+                        </button>
                       </div>
-                    </button>
-                  )
-                })}
-              </div>
-            )}
+                    </div>
+                  )}
+                  {grupoPartidas.length === 0 ? (
+                    <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 12, padding: '36px 0', textAlign: 'center' }}>
+                      <div style={{ fontSize: 10.5, color: '#94A3B8' }}>Sin partidas en este grupo</div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
+                      {grupoPartidas.map(p => {
+                        const titulo = !!p.es_titulo
+                        const avance = p.avance_fisico ?? 0
+                        const avColor = avance >= 100 ? '#94A3B8' : avance >= 70 ? '#10B981' : avance >= 40 ? '#F59E0B' : '#EF4444'
+                        return (
+                          <button key={p.id} onClick={() => abrirPanel(p)}
+                            style={{ background: titulo ? 'linear-gradient(135deg,#EEF2FF,#F5F3FF)' : '#fff', border: `1.5px solid ${titulo ? '#C7D2FE' : '#E2E8F0'}`, borderRadius: 12, padding: 14, textAlign: 'left', cursor: 'pointer', transition: 'box-shadow .15s, transform .1s', width: '100%' }}
+                            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,.08)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
+                            onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none' }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
+                              <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: titulo ? '#E0E7FF' : '#F1F5F9', color: titulo ? '#4338CA' : '#64748B', fontFamily: 'monospace' }}>{p.codigo}</span>
+                              {titulo && <span style={{ fontSize: 8.5, fontWeight: 700, color: '#6366F1', textTransform: 'uppercase', letterSpacing: '.5px' }}>Capítulo</span>}
+                            </div>
+                            <div style={{ fontSize: 11.5, fontWeight: titulo ? 700 : 500, color: '#0F172A', lineHeight: 1.35, marginBottom: titulo ? 8 : 10, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>
+                              {p.descripcion}
+                            </div>
+                            {!titulo && <div style={{ display: 'flex', gap: 12, fontSize: 9.5, color: '#94A3B8', marginBottom: 8 }}><span>{p.unidad || '—'}</span><span>×{Number(p.metrado).toLocaleString()}</span><span>S/{Number(p.precio_unitario).toLocaleString()}</span></div>}
+                            {!titulo && <div style={{ height: 3, background: '#F1F5F9', borderRadius: 2, overflow: 'hidden', marginBottom: 8 }}><div style={{ height: '100%', width: `${avance}%`, background: avColor, borderRadius: 2 }} /></div>}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: 9.5, color: '#94A3B8' }}>{titulo ? 'Subtotal' : `Avance: ${avance}%`}</span>
+                              <span style={{ fontSize: 12.5, fontWeight: 700, color: titulo ? '#4338CA' : '#0F172A' }}>S/ {Number(p.total ?? 0).toLocaleString()}</span>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </>
+              )
+            })()}
           </div>
         )}
 

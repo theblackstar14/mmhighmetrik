@@ -438,35 +438,38 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
         }
       }
 
-      // Importar partidas: reemplazar las existentes
-      if (obraId && cotActual.partidas.length > 0) {
-        await supabase.from('partida').delete().eq('proyecto_id', obraId)
-        const inserts = cotActual.partidas.map(p => ({
-          proyecto_id:     obraId!,
-          codigo:          p.item || '',
-          descripcion:     p.descripcion || '',
-          unidad:          p.unidad || '',
-          metrado:         p.metrado ?? 0,
-          precio_unitario: p.precio_unitario ?? 0,
-          avance_fisico:   0,
-          es_titulo:       p.es_titulo ?? false,
-        }))
-        const { error: errP } = await supabase.from('partida').insert(inserts)
-        if (errP) alert(`Partidas guardadas pero con error al importar a obra: ${errP.message}`)
-      }
     }
 
-    // Si no se aprobó pero la obra ya existe, igual vinculamos
+    // Lookup obraId para cotizaciones no aprobadas con obra existente
     if (!obraId) {
       obraId = obras.find(o => o.nombre.toLowerCase() === cotActual.proyecto.trim().toLowerCase())?.id ?? null
     }
 
+    // Guardar cotización primero — necesitamos su ID para vincular las partidas
     const payload = buildPayload(cotActual, obraId)
     const { data, error } = cotActual.id
       ? await supabase.from('cotizacion').update(payload).eq('id', cotActual.id).select().single()
       : await supabase.from('cotizacion').insert(payload).select().single()
 
     if (error) { alert(error.message); setSaving(false); return }
+
+    // Importar partidas vinculadas a esta cotización (solo al aprobar)
+    if (cotActual.estado === 'aprobada' && obraId && cotActual.partidas.length > 0) {
+      await supabase.from('partida').delete().eq('cotizacion_id', data.id)
+      const inserts = cotActual.partidas.map(p => ({
+        proyecto_id:     obraId!,
+        cotizacion_id:   data.id,
+        codigo:          p.item || '',
+        descripcion:     p.descripcion || '',
+        unidad:          p.unidad || '',
+        metrado:         p.metrado ?? 0,
+        precio_unitario: p.precio_unitario ?? 0,
+        avance_fisico:   0,
+        es_titulo:       p.es_titulo ?? false,
+      }))
+      const { error: errP } = await supabase.from('partida').insert(inserts)
+      if (errP) alert(`Error al importar partidas: ${errP.message}`)
+    }
 
     setCotActual(prev => ({ ...prev!, id: data.id }))
     setLista(prev => {
