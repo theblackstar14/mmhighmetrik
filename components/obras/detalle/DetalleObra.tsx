@@ -125,6 +125,13 @@ export default function DetalleObra({ obra: inicial }: { obra: ObraDetalle }) {
   const [formPartida,   setFormPartida]   = useState(formVacio)
   const [savingPartida, setSavingPartida] = useState(false)
   const [errorPartida,  setErrorPartida]  = useState('')
+  // ── Panel / Import ────────────────────────────────────────
+  const [panelPartida,    setPanelPartida]    = useState<PartidaDetalle | null>(null)
+  const [panelEdits,      setPanelEdits]      = useState<Partial<PartidaDetalle>>({})
+  const [panelSaving,     setPanelSaving]     = useState(false)
+  const [showImportExcel, setShowImportExcel] = useState(false)
+  const [importando,      setImportando]      = useState(false)
+  const importFileRef = useRef<HTMLInputElement>(null)
 
   function setF(k: string, v: string) { setFormPartida(f => ({ ...f, [k]: v })) }
 
@@ -160,6 +167,60 @@ export default function DetalleObra({ obra: inicial }: { obra: ObraDetalle }) {
 
   function handlePartidaSave(id: string, campo: EditKey, valor: string | number | null) {
     setPartidas(prev => prev.map(p => p.id === id ? { ...p, [campo]: valor } : p))
+  }
+
+  function abrirPanel(p: PartidaDetalle) {
+    setPanelPartida(p)
+    setPanelEdits({ avance_fisico: p.avance_fisico, fecha_inicio: p.fecha_inicio, fecha_fin: p.fecha_fin, responsable: p.responsable })
+  }
+
+  async function handlePanelSave() {
+    if (!panelPartida) return
+    setPanelSaving(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('partida').update(panelEdits).eq('id', panelPartida.id)
+    if (error) { alert(error.message); setPanelSaving(false); return }
+    setPartidas(prev => prev.map(p => p.id === panelPartida.id ? { ...p, ...panelEdits } : p))
+    setPanelSaving(false)
+    setPanelPartida(null)
+  }
+
+  async function handleImportExcel(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImportando(true)
+    const form = new FormData()
+    form.append('file', file)
+    try {
+      const res  = await fetch('/api/cotizacion-parse', { method: 'POST', body: form })
+      const json = await res.json()
+      if (!res.ok || !json.cotizaciones?.length) { alert(json.error || 'No se pudieron leer partidas'); return }
+      const raw: any[] = json.cotizaciones[0].partidas ?? []
+      if (!raw.length) { alert('No se encontraron partidas en el archivo'); return }
+      const supabase = createClient()
+      await supabase.from('partida').delete().eq('proyecto_id', inicial.id)
+      const { data, error } = await supabase
+        .from('partida')
+        .insert(raw.map((p: any) => ({
+          proyecto_id:     inicial.id,
+          codigo:          p.item || '',
+          descripcion:     p.descripcion || '',
+          unidad:          p.unidad || '',
+          metrado:         p.metrado ?? 0,
+          precio_unitario: p.precio_unitario ?? 0,
+          avance_fisico:   0,
+          es_titulo:       p.es_titulo ?? false,
+        })))
+        .select('id,codigo,descripcion,unidad,metrado,precio_unitario,total,avance_fisico,fecha_inicio,fecha_fin,responsable,es_titulo')
+      if (error) { alert(error.message); return }
+      setPartidas((data ?? []) as PartidaDetalle[])
+      setShowImportExcel(false)
+    } catch (err: any) {
+      alert(err.message)
+    } finally {
+      setImportando(false)
+      if (importFileRef.current) importFileRef.current.value = ''
+    }
   }
 
   const riesgo = RIESGO[obra.nivel_riesgo]
@@ -375,108 +436,160 @@ export default function DetalleObra({ obra: inicial }: { obra: ObraDetalle }) {
 
         {/* PARTIDAS */}
         {tab === 2 && (
-          <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 12, overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>Presupuesto por partidas</div>
-                <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 2 }}>Clic en ✎ para editar fechas, avance o responsable</div>
+                <div style={{ fontSize: 10.5, color: '#94A3B8', marginTop: 2 }}>
+                  {partidas.filter(p => !p.es_titulo).length} partidas · {partidas.filter(p => !!p.es_titulo).length} capítulos
+                </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 9, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '.6px' }}>Presupuesto total</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#2563EB' }}>{fmt(obra.partidas.reduce((s,p)=>s+(p.total??0),0))}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ textAlign: 'right', marginRight: 4 }}>
+                  <div style={{ fontSize: 9, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '.6px' }}>Total presupuesto</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#2563EB' }}>{fmt(partidas.reduce((s, p) => s + (p.total ?? 0), 0))}</div>
                 </div>
                 <button
+                  onClick={() => setShowImportExcel(v => !v)}
+                  style={{ padding: '7px 12px', borderRadius: 7, border: `1px solid ${showImportExcel ? '#93C5FD' : '#E2E8F0'}`, background: showImportExcel ? '#EFF6FF' : '#fff', fontSize: 11.5, fontWeight: 600, color: showImportExcel ? '#2563EB' : '#0F172A', cursor: 'pointer' }}
+                >
+                  ↑ Excel
+                </button>
+                <button
                   onClick={() => { setShowForm(true); setErrorPartida('') }}
-                  style={{ background: '#0F172A', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 13px', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  + Nueva partida
+                  style={{ padding: '7px 12px', borderRadius: 7, border: 'none', background: '#0F172A', color: '#fff', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  + Nueva
                 </button>
               </div>
             </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ background: '#F8FAFC' }}>
-                    {['Cód.','Descripción','Unid.','Metrado','P. Unit.','Presupuesto','Inicio ✎','Fin ✎','Avance ✎','Responsable ✎'].map(h => (
-                      <th key={h} style={{ padding: '8px 12px', fontSize: 9.5, fontWeight: 600, color: h.includes('✎') ? '#2563EB' : '#64748B', textAlign: 'left', textTransform: 'uppercase', letterSpacing: '.5px', borderBottom: '1px solid #E2E8F0', whiteSpace: 'nowrap' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {obra.partidas.map(p => (
-                    <tr key={p.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                      <td style={{ padding: '9px 12px', fontSize: 10.5, fontWeight: 600, color: '#94A3B8' }}>{p.codigo}</td>
-                      <td style={{ padding: '9px 12px', fontSize: 11.5, color: '#0F172A', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.descripcion}</td>
-                      <td style={{ padding: '9px 12px', fontSize: 11, color: '#64748B' }}>{p.unidad}</td>
-                      <td style={{ padding: '9px 12px', fontSize: 11, color: '#0F172A' }}>{Number(p.metrado).toLocaleString()}</td>
-                      <td style={{ padding: '9px 12px', fontSize: 11, color: '#0F172A' }}>S/ {Number(p.precio_unitario).toLocaleString()}</td>
-                      <td style={{ padding: '9px 12px', fontSize: 12, fontWeight: 700, color: '#0F172A' }}>S/ {Number(p.total ?? 0).toLocaleString()}</td>
-                      <td style={{ padding: '6px 8px', minWidth: 120 }}>
-                        <CeldaEditable partida={p} campo="fecha_inicio" valor={p.fecha_inicio} onSave={handlePartidaSave} />
-                      </td>
-                      <td style={{ padding: '6px 8px', minWidth: 120 }}>
-                        <CeldaEditable partida={p} campo="fecha_fin" valor={p.fecha_fin} onSave={handlePartidaSave} />
-                      </td>
-                      <td style={{ padding: '6px 8px', minWidth: 80 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                          <div style={{ width: 36, height: 4, background: '#F1F5F9', borderRadius: 2, overflow: 'hidden', flexShrink: 0 }}>
-                            <div style={{ height: '100%', width: `${p.avance_fisico}%`, background: p.avance_fisico >= 100 ? '#94A3B8' : p.avance_fisico >= 70 ? '#10B981' : p.avance_fisico >= 40 ? '#F59E0B' : '#EF4444', borderRadius: 2 }} />
-                          </div>
-                          <CeldaEditable partida={p} campo="avance_fisico" valor={p.avance_fisico} onSave={handlePartidaSave} />
-                        </div>
-                      </td>
-                      <td style={{ padding: '6px 8px', minWidth: 110 }}>
-                        <CeldaEditable partida={p} campo="responsable" valor={p.responsable} onSave={handlePartidaSave} />
-                      </td>
-                    </tr>
-                  ))}
 
-                  {/* ── Fila de nueva partida ── */}
-                  {showForm && (
-                    <tr style={{ background: '#F0F9FF', borderTop: '2px solid #2563EB' }}>
-                      <td style={{ padding: '8px 8px' }}>
-                        <input value={formPartida.codigo} onChange={e => setF('codigo', e.target.value)}
-                          placeholder="1.1.1" style={{ width: 64, padding: '5px 7px', borderRadius: 5, border: '1.5px solid #2563EB', fontSize: 11, outline: 'none' }} />
-                      </td>
-                      <td style={{ padding: '8px 8px' }}>
-                        <input value={formPartida.descripcion} onChange={e => setF('descripcion', e.target.value)}
-                          placeholder="Descripción de la partida" style={{ width: 200, padding: '5px 7px', borderRadius: 5, border: '1.5px solid #2563EB', fontSize: 11, outline: 'none' }} />
-                      </td>
-                      <td style={{ padding: '8px 8px' }}>
-                        <input value={formPartida.unidad} onChange={e => setF('unidad', e.target.value)}
-                          placeholder="m², ml…" style={{ width: 54, padding: '5px 7px', borderRadius: 5, border: '1px solid #D1D5DB', fontSize: 11, outline: 'none' }} />
-                      </td>
-                      <td style={{ padding: '8px 8px' }}>
-                        <input type="number" value={formPartida.metrado} onChange={e => setF('metrado', e.target.value)}
-                          placeholder="0" min="0" style={{ width: 72, padding: '5px 7px', borderRadius: 5, border: '1px solid #D1D5DB', fontSize: 11, outline: 'none' }} />
-                      </td>
-                      <td style={{ padding: '8px 8px' }}>
-                        <input type="number" value={formPartida.precio_unitario} onChange={e => setF('precio_unitario', e.target.value)}
-                          placeholder="0.00" min="0" style={{ width: 80, padding: '5px 7px', borderRadius: 5, border: '1px solid #D1D5DB', fontSize: 11, outline: 'none' }} />
-                      </td>
-                      <td style={{ padding: '8px 12px', fontSize: 11, fontWeight: 700, color: '#2563EB' }}>
-                        S/ {((Number(formPartida.metrado) || 0) * (Number(formPartida.precio_unitario) || 0)).toLocaleString()}
-                      </td>
-                      <td colSpan={3} style={{ padding: '8px 8px' }}>
-                        <input value={formPartida.responsable} onChange={e => setF('responsable', e.target.value)}
-                          placeholder="Responsable (opcional)" style={{ width: 160, padding: '5px 7px', borderRadius: 5, border: '1px solid #D1D5DB', fontSize: 11, outline: 'none' }} />
-                      </td>
-                      <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>
-                        <button onClick={crearPartida} disabled={savingPartida}
-                          style={{ background: '#0F172A', color: '#fff', border: 'none', borderRadius: 5, padding: '5px 10px', fontSize: 11, fontWeight: 600, cursor: savingPartida ? 'not-allowed' : 'pointer', marginRight: 5 }}>
-                          {savingPartida ? '…' : 'Guardar'}
-                        </button>
-                        <button onClick={() => { setShowForm(false); setFormPartida(formVacio); setErrorPartida('') }}
-                          style={{ background: 'none', border: '1px solid #D1D5DB', borderRadius: 5, padding: '5px 8px', fontSize: 11, cursor: 'pointer', color: '#64748B' }}>
-                          ✕
-                        </button>
-                        {errorPartida && <div style={{ fontSize: 10, color: '#DC2626', marginTop: 3 }}>{errorPartida}</div>}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+            {/* Import Excel */}
+            {showImportExcel && (
+              <div style={{ background: '#F8FAFC', border: '2px dashed #CBD5E1', borderRadius: 12, padding: '16px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#0F172A', marginBottom: 3 }}>Importar partidas desde Excel</div>
+                  <div style={{ fontSize: 10.5, color: '#64748B' }}>Mismo formato que cotizaciones · reemplaza las partidas actuales</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  {importando && <span style={{ fontSize: 11, color: '#64748B' }}>Procesando…</span>}
+                  <input ref={importFileRef} type="file" accept=".xlsx,.xls" onChange={handleImportExcel} style={{ display: 'none' }} />
+                  <button
+                    onClick={() => importFileRef.current?.click()}
+                    disabled={importando}
+                    style={{ padding: '8px 16px', borderRadius: 7, border: 'none', background: '#2563EB', color: '#fff', fontSize: 11.5, fontWeight: 600, cursor: importando ? 'not-allowed' : 'pointer', opacity: importando ? .65 : 1 }}
+                  >
+                    {importando ? '…' : 'Seleccionar .xlsx'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Nueva partida inline */}
+            {showForm && (
+              <div style={{ background: '#F0F9FF', border: '1.5px solid #93C5FD', borderRadius: 12, padding: 18 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#0F172A', marginBottom: 14 }}>Nueva partida</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr 70px 90px 100px', gap: 8 }}>
+                  {[
+                    { label: 'Código', key: 'codigo', placeholder: '01.01', type: 'text' },
+                    { label: 'Descripción', key: 'descripcion', placeholder: 'Descripción de la partida', type: 'text' },
+                    { label: 'Unidad', key: 'unidad', placeholder: 'm²', type: 'text' },
+                    { label: 'Metrado', key: 'metrado', placeholder: '0', type: 'number' },
+                    { label: 'P. Unitario', key: 'precio_unitario', placeholder: '0.00', type: 'number' },
+                  ].map(f => (
+                    <div key={f.key}>
+                      <div style={{ fontSize: 10, color: '#64748B', marginBottom: 3 }}>{f.label}</div>
+                      <input
+                        type={f.type}
+                        value={(formPartida as any)[f.key]}
+                        onChange={e => setF(f.key, e.target.value)}
+                        placeholder={f.placeholder}
+                        min={f.type === 'number' ? '0' : undefined}
+                        style={{ width: '100%', padding: '7px 8px', borderRadius: 6, border: '1px solid #BAE6FD', fontSize: 11, outline: 'none', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 10, color: '#64748B', marginBottom: 3 }}>Responsable (opcional)</div>
+                  <input value={formPartida.responsable} onChange={e => setF('responsable', e.target.value)}
+                    placeholder="Nombre del responsable"
+                    style={{ width: 260, padding: '7px 8px', borderRadius: 6, border: '1px solid #BAE6FD', fontSize: 11, outline: 'none', boxSizing: 'border-box' }} />
+                </div>
+                {errorPartida && <div style={{ marginTop: 6, fontSize: 10.5, color: '#DC2626' }}>{errorPartida}</div>}
+                <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+                  <button onClick={crearPartida} disabled={savingPartida}
+                    style={{ padding: '7px 16px', borderRadius: 7, border: 'none', background: '#0F172A', color: '#fff', fontSize: 11.5, fontWeight: 600, cursor: savingPartida ? 'not-allowed' : 'pointer', opacity: savingPartida ? .7 : 1 }}>
+                    {savingPartida ? 'Guardando…' : 'Guardar partida'}
+                  </button>
+                  <button onClick={() => { setShowForm(false); setFormPartida(formVacio); setErrorPartida('') }}
+                    style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid #E2E8F0', background: '#fff', fontSize: 11.5, color: '#64748B', cursor: 'pointer' }}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Cards grid */}
+            {partidas.length === 0 ? (
+              <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 12, padding: '48px 0', textAlign: 'center' }}>
+                <div style={{ fontSize: 30, marginBottom: 10 }}>📐</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>Sin partidas registradas</div>
+                <div style={{ fontSize: 10.5, color: '#94A3B8' }}>Importa desde Excel o agrega manualmente</div>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
+                {partidas.map(p => {
+                  const titulo = !!p.es_titulo
+                  const avance = p.avance_fisico ?? 0
+                  const avColor = avance >= 100 ? '#94A3B8' : avance >= 70 ? '#10B981' : avance >= 40 ? '#F59E0B' : '#EF4444'
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => abrirPanel(p)}
+                      style={{
+                        background: titulo ? 'linear-gradient(135deg,#EEF2FF,#F5F3FF)' : '#fff',
+                        border: `1.5px solid ${titulo ? '#C7D2FE' : '#E2E8F0'}`,
+                        borderRadius: 12, padding: 14, textAlign: 'left',
+                        cursor: 'pointer', transition: 'box-shadow .15s, transform .1s', width: '100%',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,.08)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
+                      onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none' }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
+                        <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: titulo ? '#E0E7FF' : '#F1F5F9', color: titulo ? '#4338CA' : '#64748B', fontFamily: 'monospace' }}>
+                          {p.codigo}
+                        </span>
+                        {titulo && <span style={{ fontSize: 8.5, fontWeight: 700, color: '#6366F1', textTransform: 'uppercase', letterSpacing: '.5px' }}>Capítulo</span>}
+                      </div>
+                      <div style={{ fontSize: 11.5, fontWeight: titulo ? 700 : 500, color: '#0F172A', lineHeight: 1.35, marginBottom: titulo ? 8 : 10, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>
+                        {p.descripcion}
+                      </div>
+                      {!titulo && (
+                        <div style={{ display: 'flex', gap: 12, fontSize: 9.5, color: '#94A3B8', marginBottom: 8 }}>
+                          <span>{p.unidad || '—'}</span>
+                          <span>×{Number(p.metrado).toLocaleString()}</span>
+                          <span>S/{Number(p.precio_unitario).toLocaleString()}</span>
+                        </div>
+                      )}
+                      {!titulo && (
+                        <div style={{ height: 3, background: '#F1F5F9', borderRadius: 2, overflow: 'hidden', marginBottom: 8 }}>
+                          <div style={{ height: '100%', width: `${avance}%`, background: avColor, borderRadius: 2 }} />
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 9.5, color: '#94A3B8' }}>{titulo ? 'Subtotal' : `Avance: ${avance}%`}</span>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: titulo ? '#4338CA' : '#0F172A' }}>
+                          S/ {Number(p.total ?? 0).toLocaleString()}
+                        </span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -698,6 +811,148 @@ export default function DetalleObra({ obra: inicial }: { obra: ObraDetalle }) {
         )}
 
       </div>
+
+      {/* ── Panel lateral partida ── */}
+      {panelPartida && (
+        <>
+          <div onClick={() => setPanelPartida(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.3)', zIndex: 999, backdropFilter: 'blur(2px)' }} />
+          <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 420, background: '#fff', zIndex: 1000, display: 'flex', flexDirection: 'column', boxShadow: '-8px 0 40px rgba(0,0,0,.15)' }}>
+
+            {/* Header oscuro */}
+            <div style={{ background: '#0F172A', padding: '20px 22px', flexShrink: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
+                  <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginBottom: 7 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: panelPartida.es_titulo ? '#6366F1' : '#334155', color: '#E2E8F0', fontFamily: 'monospace' }}>
+                      {panelPartida.codigo}
+                    </span>
+                    {panelPartida.es_titulo && <span style={{ fontSize: 8.5, fontWeight: 700, color: '#A5B4FC', textTransform: 'uppercase', letterSpacing: '.5px' }}>Capítulo</span>}
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#fff', lineHeight: 1.3 }}>{panelPartida.descripcion}</div>
+                </div>
+                <button onClick={() => setPanelPartida(null)} style={{ background: 'rgba(255,255,255,.1)', border: 'none', color: '#94A3B8', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', fontSize: 15, flexShrink: 0 }}>✕</button>
+              </div>
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,.1)' }}>
+                <div style={{ fontSize: 9, color: '#64748B', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 2 }}>Total partida</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>
+                  S/ {Number(panelPartida.total ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}
+                </div>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 22, display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+              {/* Resumen */}
+              <div style={{ background: '#F8FAFC', borderRadius: 10, padding: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#0F172A', marginBottom: 10 }}>Resumen</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+                  {[
+                    { label: 'Unidad',      val: panelPartida.unidad || '—' },
+                    { label: 'Metrado',     val: Number(panelPartida.metrado).toLocaleString() },
+                    { label: 'P. Unitario', val: `S/ ${Number(panelPartida.precio_unitario).toLocaleString()}` },
+                    { label: 'Avance',      val: `${panelEdits.avance_fisico ?? panelPartida.avance_fisico ?? 0}%` },
+                  ].map(k => (
+                    <div key={k.label} style={{ background: '#fff', borderRadius: 7, padding: '8px 10px', border: '1px solid #E2E8F0' }}>
+                      <div style={{ fontSize: 8.5, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 2 }}>{k.label}</div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#0F172A' }}>{k.val}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ height: 7, background: '#E2E8F0', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${panelEdits.avance_fisico ?? panelPartida.avance_fisico ?? 0}%`,
+                    background: (panelEdits.avance_fisico ?? panelPartida.avance_fisico ?? 0) >= 100 ? '#94A3B8'
+                             : (panelEdits.avance_fisico ?? panelPartida.avance_fisico ?? 0) >= 70  ? '#10B981' : '#F59E0B',
+                    borderRadius: 4, transition: 'width .3s',
+                  }} />
+                </div>
+              </div>
+
+              {/* Status fechas */}
+              {(() => {
+                const fi = panelEdits.fecha_inicio || panelPartida.fecha_inicio
+                const ff = panelEdits.fecha_fin    || panelPartida.fecha_fin
+                if (!fi || !ff) return null
+                const ini       = new Date(fi + 'T12:00:00')
+                const fin       = new Date(ff + 'T12:00:00')
+                const hoy       = new Date()
+                const diasTotal = Math.round((fin.getTime() - ini.getTime()) / 86400000)
+                const diasRest  = Math.round((fin.getTime() - hoy.getTime()) / 86400000)
+                const avance    = panelEdits.avance_fisico ?? panelPartida.avance_fisico ?? 0
+                const atrasada  = diasRest < 0 && avance < 100
+                return (
+                  <div style={{ background: atrasada ? '#FEF2F2' : '#F0FDF4', border: `1px solid ${atrasada ? '#FCA5A5' : '#86EFAC'}`, borderRadius: 8, padding: '10px 14px' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: atrasada ? '#B91C1C' : '#15803D', marginBottom: 3 }}>
+                      {atrasada ? '⚠ Partida atrasada' : '✓ En plazo'}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: atrasada ? '#991B1B' : '#166534' }}>
+                      {diasTotal} días de duración · {Math.abs(diasRest)} día{Math.abs(diasRest) !== 1 ? 's' : ''} {diasRest < 0 ? 'de retraso' : 'restantes'}
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* Campos editables */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#0F172A' }}>Editar</div>
+
+                <div>
+                  <label style={{ fontSize: 10.5, fontWeight: 600, color: '#64748B', display: 'block', marginBottom: 4 }}>Avance físico (%)</label>
+                  <input
+                    type="number" min="0" max="100"
+                    value={panelEdits.avance_fisico ?? panelPartida.avance_fisico ?? ''}
+                    onChange={e => setPanelEdits(prev => ({ ...prev, avance_fisico: Number(e.target.value) }))}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1.5px solid #E2E8F0', fontSize: 12, outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={{ fontSize: 10.5, fontWeight: 600, color: '#64748B', display: 'block', marginBottom: 4 }}>Fecha inicio</label>
+                    <input type="date"
+                      value={panelEdits.fecha_inicio || ''}
+                      onChange={e => setPanelEdits(prev => ({ ...prev, fecha_inicio: e.target.value || null }))}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1.5px solid #E2E8F0', fontSize: 11, outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 10.5, fontWeight: 600, color: '#64748B', display: 'block', marginBottom: 4 }}>Fecha fin</label>
+                    <input type="date"
+                      value={panelEdits.fecha_fin || ''}
+                      onChange={e => setPanelEdits(prev => ({ ...prev, fecha_fin: e.target.value || null }))}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1.5px solid #E2E8F0', fontSize: 11, outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 10.5, fontWeight: 600, color: '#64748B', display: 'block', marginBottom: 4 }}>Responsable</label>
+                  <input type="text"
+                    value={panelEdits.responsable || ''}
+                    onChange={e => setPanelEdits(prev => ({ ...prev, responsable: e.target.value || null }))}
+                    placeholder="Nombre del responsable"
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1.5px solid #E2E8F0', fontSize: 12, outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '16px 22px', borderTop: '1px solid #E2E8F0', display: 'flex', gap: 10, flexShrink: 0 }}>
+              <button onClick={() => setPanelPartida(null)}
+                style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: '1px solid #E2E8F0', background: '#fff', color: '#64748B', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                Cancelar
+              </button>
+              <button onClick={handlePanelSave} disabled={panelSaving}
+                style={{ flex: 2, padding: '9px 0', borderRadius: 8, border: 'none', background: '#0F172A', color: '#fff', fontSize: 12, fontWeight: 600, cursor: panelSaving ? 'not-allowed' : 'pointer', opacity: panelSaving ? .7 : 1 }}>
+                {panelSaving ? 'Guardando…' : 'Guardar cambios'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
