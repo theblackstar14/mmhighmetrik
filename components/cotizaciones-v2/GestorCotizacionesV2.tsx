@@ -403,10 +403,15 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
       const nombreObra = cotActual.proyecto.trim()
       const existe = obras.find(o => o.nombre.toLowerCase() === nombreObra.toLowerCase())
       if (!existe) {
+        // Generar codigo único basado en la cotización o timestamp
+        const codigoBase = cotActual.numero_cot
+          ? `PRY-${cotActual.numero_cot.replace(/[^A-Z0-9]/gi, '').slice(0, 8).toUpperCase()}`
+          : `PRY-${Date.now().toString(36).toUpperCase()}`
         const { data: nuevaObra, error: errObra } = await supabase
           .from('proyecto')
           .insert({
             empresa_id:           empresaId,
+            codigo:               codigoBase,
             nombre:               nombreObra,
             cliente:              cotActual.cliente || '',
             tipo:                 'privado',
@@ -416,9 +421,12 @@ export default function GestorCotizacionesV2({ cotizaciones: inicial, empresaId,
           })
           .select('id, nombre, estado, codigo')
           .single()
-        if (!errObra && nuevaObra) {
-          setObras(prev => [...prev, nuevaObra])
+        if (errObra) {
+          alert(`Error al crear obra: ${errObra.message}`)
+          setSaving(false)
+          return
         }
+        if (nuevaObra) setObras(prev => [...prev, nuevaObra])
       }
     }
 
